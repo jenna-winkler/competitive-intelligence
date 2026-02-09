@@ -40,7 +40,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "agentstack-sdk", specifier = "==0.4.1" },
+    { name = "agentstack-sdk", specifier = ">=0.4.1" },
     { name = "beeai-framework", extras = ["duckduckgo"] },
     { name = "openinference-instrumentation-beeai" },
     { name = "pyyaml", specifier = ">=6.0.2" },
