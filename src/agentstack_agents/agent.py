@@ -2,6 +2,9 @@ import os
 from dotenv import load_dotenv
 load_dotenv()
 
+from openinference.instrumentation.beeai import BeeAIInstrumentor
+BeeAIInstrumentor().instrument()
+
 from typing import Annotated
 from a2a.types import Message, AgentSkill, Role
 from a2a.utils.message import get_message_text
@@ -125,7 +128,8 @@ def run():
         server.run(
             host=os.getenv("HOST", "127.0.0.1"),
             port=int(os.getenv("PORT", 8000)),
-            context_store=PlatformContextStore()
+            context_store=PlatformContextStore(),
+            configure_telemetry=True,
         )
     except KeyboardInterrupt:
         pass
