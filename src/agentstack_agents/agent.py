@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from typing import Annotated
-from a2a.types import Message, AgentSkill
+from a2a.types import Message, AgentSkill, Role
 from a2a.utils.message import get_message_text
 from beeai_framework.agents.requirement import RequirementAgent
 from beeai_framework.agents.requirement.requirements.conditional import ConditionalRequirement
@@ -14,6 +14,7 @@ from beeai_framework.agents.requirement.events import (
 from beeai_framework.agents.requirement.utils._tool import FinalAnswerTool
 from beeai_framework.backend import ChatModel
 from beeai_framework.memory import UnconstrainedMemory
+from beeai_framework.backend.message import UserMessage as FrameworkUserMessage, AssistantMessage as FrameworkAssistantMessage
 from beeai_framework.tools.search.duckduckgo import DuckDuckGoSearchTool
 from beeai_framework.tools.think import ThinkTool
 from beeai_framework.middleware.trajectory import GlobalTrajectoryMiddleware
@@ -23,6 +24,7 @@ from agentstack_sdk.server import Server
 from agentstack_sdk.server.context import RunContext
 from agentstack_sdk.server.store.platform_context_store import PlatformContextStore
 from agentstack_sdk.a2a.extensions import TrajectoryExtensionServer, TrajectoryExtensionSpec
+from agentstack_sdk.a2a.types import AgentMessage
 
 server = Server()
 
@@ -63,17 +65,30 @@ async def competitive_intel(
     context: RunContext,
     trajectory: Annotated[TrajectoryExtensionServer, TrajectoryExtensionSpec()]
 ):
-    """Research assistant that analyzes competitors, market trends, and strategic opportunities"""
-    
+    await context.store(input)
+
+    history = [
+        msg async for msg in context.load_history()
+        if isinstance(msg, Message) and msg.parts
+    ]
+
+    memory = UnconstrainedMemory()
+    for msg in history[:-1]:
+        text = get_message_text(msg)
+        if msg.role == Role.agent:
+            await memory.add(FrameworkAssistantMessage(text))
+        else:
+            await memory.add(FrameworkUserMessage(text))
+
     user_message = get_message_text(input)
-    
+
     agent = RequirementAgent(
         llm=ChatModel.from_name(
             os.getenv("MODEL", "openai:gpt-4o"),
             api_key=os.getenv("OPENAI_API_KEY"),
         ),
         tools=[ThinkTool(), DuckDuckGoSearchTool()],
-        memory=UnconstrainedMemory(),
+        memory=memory,
         instructions="You are a competitive intelligence analyst. Research companies, analyze market positioning, identify trends, and provide strategic insights. Always start by thinking through what information would be most valuable, then gather current data to support your analysis.",
         requirements=[
             ConditionalRequirement(ThinkTool, force_at_step=1),
@@ -81,24 +96,28 @@ async def competitive_intel(
         ],
         middlewares=[GlobalTrajectoryMiddleware(included=[Tool])],
     )
-    
+
+    response_text = ""
     async for event, meta in agent.run(user_message):
         match event:
             case RequirementAgentFinalAnswerEvent(delta=delta):
+                response_text += delta
                 yield delta
             case RequirementAgentSuccessEvent(state=state):
                 last_step = state.steps[-1]
-                
+
                 if last_step.tool.name == FinalAnswerTool.name:
                     continue
-                
+
                 title, content = format_trajectory_content(
                     last_step.tool.name,
                     last_step.input,
                     last_step.output
                 )
-                
+
                 yield trajectory.trajectory_metadata(title=title, content=content)
+
+    await context.store(AgentMessage(text=response_text))
 
 
 def run():
