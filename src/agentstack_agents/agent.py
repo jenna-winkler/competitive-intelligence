@@ -47,15 +47,12 @@ def format_trajectory_content(tool_name: str, tool_input, tool_output) -> tuple[
     elif tool_name == "duckduckgo_search":
         query = tool_input.get("query", "") if isinstance(tool_input, dict) else str(tool_input)
         
-        # Parse the output to count sources
         if isinstance(tool_output, str):
-            # Try to parse as list of results
             import json
             try:
                 results = json.loads(tool_output)
                 if isinstance(results, list):
                     source_count = len(results)
-                    # Show first 3 titles as preview
                     preview_titles = [r.get('title', '') for r in results[:3] if isinstance(r, dict)]
                     preview = '\n'.join(f"- {title}" for title in preview_titles if title)
                     if source_count > 3:
