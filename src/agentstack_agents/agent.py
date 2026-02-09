@@ -26,8 +26,13 @@ from beeai_framework.tools import Tool
 from agentstack_sdk.server import Server
 from agentstack_sdk.server.context import RunContext
 from agentstack_sdk.server.store.platform_context_store import PlatformContextStore
-from agentstack_sdk.a2a.extensions import TrajectoryExtensionServer, TrajectoryExtensionSpec
+from agentstack_sdk.a2a.extensions import (
+    CitationExtensionServer, CitationExtensionSpec,
+    TrajectoryExtensionServer, TrajectoryExtensionSpec,
+)
 from agentstack_sdk.a2a.types import AgentMessage
+
+from .streaming_citation_parser import StreamingCitationParser
 
 server = Server()
 
@@ -66,7 +71,8 @@ def format_trajectory_content(tool_name: str, tool_input, tool_output) -> tuple[
 async def competitive_intel(
     input: Message,
     context: RunContext,
-    trajectory: Annotated[TrajectoryExtensionServer, TrajectoryExtensionSpec()]
+    citation: Annotated[CitationExtensionServer, CitationExtensionSpec()],
+    trajectory: Annotated[TrajectoryExtensionServer, TrajectoryExtensionSpec()],
 ):
     await context.store(input)
 
@@ -92,7 +98,14 @@ async def competitive_intel(
         ),
         tools=[ThinkTool(), DuckDuckGoSearchTool()],
         memory=memory,
-        instructions="You are a competitive intelligence analyst. Research companies, analyze market positioning, identify trends, and provide strategic insights. Always start by thinking through what information would be most valuable, then gather current data to support your analysis.",
+        instructions=(
+            "You are a competitive intelligence analyst. Research companies, analyze market positioning, "
+            "identify trends, and provide strategic insights. Always start by thinking through what information "
+            "would be most valuable, then gather current data to support your analysis. "
+            "For search results, ALWAYS use proper markdown citations: [description](URL). "
+            "Examples: [OpenAI releases GPT-5](https://example.com/gpt5), "
+            "[AI adoption increases 67%](https://example.com/ai-study)"
+        ),
         requirements=[
             ConditionalRequirement(ThinkTool, force_at_step=1),
             ConditionalRequirement(DuckDuckGoSearchTool, only_after=[ThinkTool], min_invocations=2, max_invocations=3),
@@ -101,11 +114,20 @@ async def competitive_intel(
     )
 
     response_text = ""
-    async for event, meta in agent.run(user_message):
+    citation_parser = StreamingCitationParser()
+
+    async for event, meta in agent.run(
+        user_message,
+        expected_output="Markdown format with proper [text](URL) citations for search results.",
+    ):
         match event:
             case RequirementAgentFinalAnswerEvent(delta=delta):
                 response_text += delta
-                yield delta
+                clean_text, new_citations = citation_parser.process_chunk(delta)
+                if clean_text:
+                    yield clean_text
+                if new_citations:
+                    yield citation.citation_metadata(citations=new_citations)
             case RequirementAgentSuccessEvent(state=state):
                 last_step = state.steps[-1]
 
@@ -120,7 +142,13 @@ async def competitive_intel(
 
                 yield trajectory.trajectory_metadata(title=title, content=content)
 
-    await context.store(AgentMessage(text=response_text))
+    if final_text := citation_parser.finalize():
+        yield final_text
+
+    await context.store(AgentMessage(
+        text=response_text,
+        metadata=(citation.citation_metadata(citations=citation_parser.citations) if citation_parser.citations else None),
+    ))
 
 
 def run():
