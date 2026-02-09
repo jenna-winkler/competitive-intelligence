@@ -42,14 +42,39 @@ def format_trajectory_content(tool_name: str, tool_input, tool_output) -> tuple[
     
     if tool_name == "think":
         thoughts = tool_input.get("thoughts", "") if isinstance(tool_input, dict) else str(tool_input)
-        return "🤔 Planning", f"**Strategy:** {thoughts}"
+        return "🤔 Planning", f"Strategy: {thoughts}"
     
     elif tool_name == "duckduckgo_search":
         query = tool_input.get("query", "") if isinstance(tool_input, dict) else str(tool_input)
-        return f"🔍 Searching: {query}", f"**Input:** {tool_input}\n\n**Output:** {tool_output}"
+        
+        # Parse the output to count sources
+        if isinstance(tool_output, str):
+            # Try to parse as list of results
+            import json
+            try:
+                results = json.loads(tool_output)
+                if isinstance(results, list):
+                    source_count = len(results)
+                    # Show first 3 titles as preview
+                    preview_titles = [r.get('title', '') for r in results[:3] if isinstance(r, dict)]
+                    preview = '\n'.join(f"- {title}" for title in preview_titles if title)
+                    if source_count > 3:
+                        preview += f"\n- ... and {source_count - 3} more"
+                    
+                    output_summary = f"**Found {source_count} sources**\n\n{preview}"
+                else:
+                    output_summary = f"Output: {str(tool_output)[:200]}..."
+            except:
+                output_summary = f"Output: {str(tool_output)[:200]}..."
+        else:
+            output_summary = f"Output: {str(tool_output)[:200]}..."
+        
+        return f"🛠️ DuckDuckGo", f"Input: {{'query': '{query}'}}\n\n{output_summary}"
     
     else:
-        return f"🛠️ {tool_name}", f"**Input:** {tool_input}\n\n**Output:** {tool_output}"
+        input_str = str(tool_input)[:100]
+        output_str = str(tool_output)[:200]
+        return f"🛠️ {tool_name}", f"Input: {input_str}...\n\nOutput: {output_str}..."
 
 
 @server.agent(
