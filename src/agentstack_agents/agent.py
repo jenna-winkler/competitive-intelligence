@@ -145,9 +145,7 @@ async def competitive_intel(
         match event:
             case RequirementAgentFinalAnswerEvent(delta=delta):
                 response_text += delta
-                clean_text, new_citations = citation_parser.process_chunk(delta)
-                if clean_text:
-                    yield clean_text
+                _, new_citations = citation_parser.process_chunk(delta)
                 if new_citations:
                     yield citation.citation_metadata(citations=new_citations)
             case RequirementAgentSuccessEvent(state=state):
